@@ -1,4 +1,5 @@
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <time.h>
 
 const char* ssid     = "SSID";
@@ -10,11 +11,11 @@ IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
 
 // Time zone: ESP (UTC+1 / +2 on summer)
-const char* ntpServer = "162.159.200.1"; //"pool.ntp.org";
+const char* ntpServer = "162.159.200.1"; // "pool.ntp.org";
 const long  gmtOffset_sec = 3600;        // +1 hour
 const int   daylightOffset_sec = 3600;   // +1h summer timetable
 
-WiFiServer server(80);
+ESP8266WebServer server(80);
 
 #define SENSOR_POWER_PIN D1
 #define SENSOR_SIGNAL_PIN A0
@@ -29,22 +30,18 @@ void setup() {
   connectToWiFi();
   syncClock();
 
+  server.on("/", handleRoot);
+  server.on("/status", handleApiStatus);
+  server.on("/moisture", handleMoisture);
+  server.onNotFound(handleNotFound);
+
   server.begin();
   Serial.println("\n✅ API server started");
 }
 
 void loop() {
-  WiFiClient client = server.available();
-  if (!client) return;
-
-  while (!client.available()) delay(1);
-
-  String request = client.readStringUntil('\r');
-  client.flush();
-
-  handleRequest(client, request);
+  server.handleClient();
 }
-
 
 void connectToWiFi() {
 
@@ -65,7 +62,7 @@ void connectToWiFi() {
 
 void syncClock(){
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  
+
   struct tm timeinfo;
   int retry = 0;
   const int maxRetries = 10;
@@ -95,19 +92,31 @@ void printLocalTime() {
   Serial.print(timeStr);
 }
 
-void handleRequest(WiFiClient& client, const String& request) {
+void handleRoot() {
+  server.send(200, "text/plain", "Hola desde ESP8266");
+}
 
+void handleApiStatus() {
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
+
+void handleMoisture() {
   printLocalTime();
-  Serial.print(" | Request: ");
-  Serial.print(request);
+  Serial.print(" | Request: /moisture");
 
-  if (request.indexOf("GET /moisture") != -1) {
-    int moisture = readSensor();
-    printLog(moisture);
-    sendResponse(client, moisture);
-  } else {
-    send404(client);
-  }
+  int moisture = readSensor();
+  printLog(moisture);
+
+  String response = "{\"moisture\": " + String(moisture) + "}";
+  server.send(200, "application/json", response);
+}
+
+void handleNotFound() {
+  printLocalTime();
+  Serial.print(" | Unknown request: ");
+  Serial.println(server.uri());
+
+  server.send(404, "text/plain", "404: Not Found");
 }
 
 int readSensor() {
@@ -116,22 +125,6 @@ int readSensor() {
   int moisture = analogRead(SENSOR_SIGNAL_PIN);
   digitalWrite(SENSOR_POWER_PIN, LOW);
   return moisture;
-}
-
-void sendResponse(WiFiClient& client, int moisture) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: application/json");
-  client.println("Connection: close");
-  client.println();
-  client.print("{\"moisture\": ");
-  client.print(moisture);
-  client.print("}");
-}
-
-void send404(WiFiClient& client) {
-  client.println("HTTP/1.1 404 Not Found");
-  client.println("Connection: close");
-  client.println();
 }
 
 void printLog(int moisture){
