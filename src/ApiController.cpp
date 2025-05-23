@@ -1,46 +1,36 @@
-#include <ESP8266WebServer.h>
+#include "ApiController.h"
 
-#include "NetworkManager.h"
-#include "TimeManager.h"
-#include "SensorReader.h"
-#include "CacheManager.h"
+ApiController::ApiController(ESP8266WebServer &server)
+  : server(server), cache(10000) {
+}
 
-ESP8266WebServer server(80);
-CacheManager cache(10000);
+void ApiController::init(){
+  cache.setReader(readSensor);
 
-void setup() {
-  Serial.begin(9600); // Init serial communication
-  //Serial.setDebugOutput(true); // DEBUG
-
-  pinMode(SENSOR_POWER_PIN, OUTPUT);
-  digitalWrite(SENSOR_POWER_PIN, LOW); // Keep turn-off since the beginning
-
-  connectToWiFi();
-  syncClock();
-
-  server.on("/", handleRoot);
-  server.on("/status", handleApiStatus);
-  server.on("/moisture", handleMoisture);
-  server.onNotFound(handleNotFound);
+  server.on("/", [this]() { handleRoot(); });
+  server.on("/status", [this]() { handleApiStatus(); });
+  server.on("/moisture", [this]() { handleMoisture(); });
+  server.onNotFound([this]() { handleNotFound(); });
 
   server.begin();
-  cache.setReader(readSensor);
   Serial.println("\n✅ API server started");
 }
 
-void loop() {
-  server.handleClient();
+void ApiController::handleRoot() {
+  printLocalTime();
+  Serial.println(" | Request: /");
+
+  server.send(200, "text/plain", "Hi from ESP8266");
 }
 
-void handleRoot() {
-  server.send(200, "text/plain", "Hola desde ESP8266");
+void ApiController::handleApiStatus() {
+  printLocalTime();
+  Serial.println(" | Request: /status");
+
+  server.send(200, "application/json", "{\"status\":\"UP\"}");
 }
 
-void handleApiStatus() {
-  server.send(200, "application/json", "{\"status\":\"ok\"}");
-}
-
-void handleMoisture() {
+void ApiController::handleMoisture() {
   printLocalTime();
 
   bool force = false;
@@ -60,7 +50,7 @@ void handleMoisture() {
   server.send(200, "application/json", response);
 }
 
-void handleNotFound() {
+void ApiController::handleNotFound() {
   printLocalTime();
   Serial.print(" | Unknown request: ");
   Serial.println(server.uri());
@@ -68,7 +58,7 @@ void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
 
-void printLog(int moisture){
+void ApiController::printLog(int moisture){
   Serial.print(" | Moisture value: ");
   Serial.print(moisture);
   Serial.print(" - ");
