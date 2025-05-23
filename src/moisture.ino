@@ -15,6 +15,11 @@ const char* ntpServer = "162.159.200.1"; // "pool.ntp.org";
 const long  gmtOffset_sec = 3600;        // +1 hour
 const int   daylightOffset_sec = 3600;   // +1h summer timetable
 
+// Cache
+unsigned long lastReadTime = 0;
+int cachedMoistureValue = 0;
+const unsigned long CACHE_INTERVAL = 60000; // 60 sec
+
 ESP8266WebServer server(80);
 
 #define SENSOR_POWER_PIN D1
@@ -93,18 +98,36 @@ void printLocalTime() {
 }
 
 void handleRoot() {
-  server.send(200, "text/plain", "Hola desde ESP8266");
+  server.send(200, "text/plain", "Hi from ESP8266");
 }
 
 void handleApiStatus() {
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
+int getMoisture(bool forceRead = false) {
+  unsigned long currentTime = millis();
+  if (forceRead || lastReadTime == 0 || (currentTime - lastReadTime >= CACHE_INTERVAL)) {
+    cachedMoistureValue = readSensor();
+    lastReadTime = currentTime;
+  }
+  return cachedMoistureValue;
+}
+
 void handleMoisture() {
   printLocalTime();
-  Serial.print(" | Request: /moisture");
 
-  int moisture = readSensor();
+  bool force = false;
+  if (server.hasArg("force")) {
+    String val = server.arg("force");
+    val.toLowerCase();
+    force = (val == "true");
+    Serial.print(" | Request: /moisture?force=" + String(val));
+  }else{
+    Serial.print(" | Request: /moisture");
+  }
+
+  int moisture = getMoisture(force);
   printLog(moisture);
 
   String response = "{\"moisture\": " + String(moisture) + "}";
